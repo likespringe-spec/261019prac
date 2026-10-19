@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>도전! 세탁 기호 마스터</title>
+    <!-- 디자인의 일관성과 반응형 대응을 위해 Tailwind CSS(CDN)를 사용합니다 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            touch-action: manipulation; /* 모바일에서 더블탭 줌 방지 */
+        }
+        
+        .draggable-item {
+            /* 드래그 중 화면 스크롤 방지 */
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            transition: transform 0.1s;
+            will-change: transform, left, top;
+        }
+
+        .drop-zone {
+            transition: all 0.2s ease;
+        }
+
+        /* 오답 시 흔들림 애니메이션 */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-6px); border-color: #ef4444; background-color: #fef2f2; }
+            75% { transform: translateX(6px); border-color: #ef4444; background-color: #fef2f2; }
+        }
+        .shake {
+            animation: shake 0.4s ease-in-out;
+        }
+
+        /* 정답 시 팝 애니메이션 */
+        @keyframes pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        .pop {
+            animation: pop 0.3s ease-out;
+        }
+
+        /* Canvas 폭죽 레이어 */
+        #confetti-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 50;
+        }
+
+        /* 스크롤바 숨기기 (가로 스크롤 영역) */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="text-gray-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- 시작 모달 -->
+    <div id="start-modal" class="absolute inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-40 px-4">
+        <div class="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl transform transition-all">
+            <h1 class="text-3xl font-extrabold text-indigo-600 mb-4">👕 도전! 세탁 기호</h1>
+            <p class="text-gray-600 mb-6 text-sm sm:text-base leading-relaxed">
+                화면 상단의 세탁 기호를 알맞은 설명 칸으로 드래그 앤 드롭 하세요!<br>
+                연속으로 맞추면 추가 점수가 있습니다.<br>
+                과연 당신은 세탁 마스터가 될 수 있을까요?
+            </p>
+            <button id="btn-start" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform active:scale-95 text-lg">
+                게임 시작하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 결과 모달 -->
+    <div id="result-modal" class="absolute inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-40 hidden px-4">
+        <div class="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
+            <h2 class="text-4xl font-extrabold text-yellow-500 mb-2">🎉 SUCCESS!</h2>
+            <h3 class="text-xl font-bold text-gray-800 mb-6">세탁 기호 마스터 달성</h3>
+            
+            <div class="bg-gray-100 rounded-xl p-4 mb-6">
+                <p class="text-gray-500 text-sm mb-1">최종 점수</p>
+                <p id="final-score" class="text-5xl font-black text-indigo-600">300</p>
+                <p class="text-gray-400 text-xs mt-2">최고 기록: <span id="best-score">0</span>점</p>
+            </div>
+            
+            <button id="btn-restart" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 rounded-xl shadow-lg transition-transform active:scale-95 text-lg">
+                다시 도전하기
+            </button>
+        </div>
+    </div>
+
+    <!-- 캔버스 레이어 -->
+    <canvas id="confetti-canvas"></canvas>
+
+    <!-- 헤더 -->
+    <header class="bg-white shadow-sm shrink-0 relative z-10">
+        <div class="max-w-4xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="flex flex-col">
+                <span id="stage-title" class="text-lg sm:text-xl font-bold text-indigo-600">Stage 1: 다림질 기호</span>
+                <span class="text-xs text-gray-500 font-medium tracking-wide">도전! 세탁 기호 마스터</span>
+            </div>
+            <div class="text-right flex flex-col items-end">
+                <div class="text-2xl sm:text-3xl font-black text-gray-800" id="score-display">0</div>
+                <div class="text-xs font-bold text-orange-500 bg-orange-100 px-2 py-1 rounded-full animate-pulse transition-opacity" id="combo-display" style="opacity: 0;">
+                    0 Combo!
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 메인 컨텐츠 영역 -->
+    <main class="flex-1 overflow-y-auto w-full max-w-4xl mx-auto relative flex flex-col bg-gray-50 shadow-inner rounded-t-3xl mt-2 z-0 pb-10">
+        
+        <!-- 상단: 드래그 가능한 기호 아이템들 -->
+        <section class="p-4 sm:p-6 shrink-0 border-b border-gray-200 bg-white sticky top-0 z-20">
+            <p class="text-xs text-gray-500 font-semibold mb-3 text-center">알맞은 설명 빈칸으로 기호를 끌어다 놓으세요.</p>
+            <div id="draggable-container" class="flex justify-center gap-3 sm:gap-6 flex-wrap">
+                <!-- 동적으로 기호가 추가되는 곳 -->
+            </div>
+        </section>
+
+        <!-- 하단: 설명과 드롭 존 영역 -->
+        <section class="p-4 sm:p-6 flex-1">
+            <ul id="drop-container" class="space-y-4 max-w-2xl mx-auto pb-8">
+                <!-- 동적으로 텍스트와 드롭존이 추가되는 곳 -->
+            </ul>
+        </section>
+
+    </main>
+
+<script>
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+function playSound(type) {
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    const now = audioCtx.currentTime;
+    
+    if (type === 'correct') {
+        // 정답 (경쾌한 핑)
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(659.25, now); // E5
+        osc.frequency.exponentialRampToValueAtTime(880, now + 0.1); // A5
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.3, now + 0.02);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.3);
+        osc.start(now);
+        osc.stop(now + 0.3);
+    } else if (type === 'wrong') {
+        // 오답 (낮은 띡)
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(200, now);
+        osc.frequency.linearRampToValueAtTime(150, now + 0.2);
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.4, now + 0.05);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.2);
+        osc.start(now);
+        osc.stop(now + 0.2);
+    } else if (type === 'success') {
+        // 스테이지/최종 클리어 (아르페지오)
+        osc.type = 'triangle';
+        const notes = [523.25, 659.25, 783.99, 1046.50]; // C, E, G, C(high)
+        notes.forEach((freq, i) => {
+            osc.frequency.setValueAtTime(freq, now + i * 0.1);
+        });
+        gainNode.gain.setValueAtTime(0, now);
+        gainNode.gain.linearRampToValueAtTime(0.4, now + 0.1);
+        gainNode.gain.linearRampToValueAtTime(0.01, now + 0.6);
+        osc.start(now);
+        osc.stop(now + 0.6);
+    }
+}
+
+// 공통 SVG 파트
+const getIronBase = () => `<path d="M 20 65 L 20 45 L 45 20 L 75 20 C 85 20 85 35 85 45 L 85 65 Z" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/><path d="M 30 10 L 75 10 C 85 10 85 20 85 20" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>`;
+const getWashBase = () => `<path d="M 15 35 L 25 80 L 75 80 L 85 35 Z" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="round"/><path d="M 5 35 L 95 35" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>`;
+const getDrySquare = () => `<rect x="20" y="20" width="60" height="60" fill="none" stroke="currentColor" stroke-width="5" rx="4"/>`;
+const getRedCross = () => `<path d="M 15 15 L 85 85 M 85 15 L 15 85" stroke="#ef4444" stroke-width="7" stroke-linecap="round"/>`;
+const getWavyLine = () => `<path d="M 15 85 Q 25 75 35 85 T 55 85 T 75 85 T 85 85" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round"/>`;
+
+// 전체 게임 데이터
+const gameData = [
+    {
+        title: "Stage 1: 다림질 기호",
+        items: [
+            { id: "i1", desc: "최고온도 210℃로 다림질 (원단 위에 헝겊 덮고)", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-gray-800">${getIronBase()}${getWavyLine()}<text x="50" y="48" font-size="18" font-weight="900" text-anchor="middle" fill="currentColor">210</text></svg>` },
+            { id: "i2", desc: "최고온도 150℃로 다림질 (원단 위에 헝겊 덮고)", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-gray-800">${getIronBase()}${getWavyLine()}<text x="50" y="48" font-size="18" font-weight="900" text-anchor="middle" fill="currentColor">150</text></svg>` },
+            { id: "i3", desc: "최고온도 110℃로 다림질", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-gray-800">${getIronBase()}<text x="50" y="48" font-size="18" font-weight="900" text-anchor="middle" fill="currentColor">110</text></svg>` },
+            { id: "i4", desc: "다림질 불가", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-gray-800">${getIronBase()}${getRedCross()}</svg>` },
+            { id: "i5", desc: "최고온도 150℃로 다림질", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-gray-800">${getIronBase()}<text x="50" y="48" font-size="18" font-weight="900" text-anchor="middle" fill="currentColor">150</text></svg>` }
+        ]
+    },
+    {
+        title: "Stage 2: 세탁기 및 물세탁",
+        items: [
+            { id: "w1", desc: "물온도 95℃로 세탁기 사용", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-blue-900">${getWashBase()}<text x="50" y="65" font-size="22" font-weight="900" text-anchor="middle" fill="currentColor">95</text></svg>` },
+            { id: "w2", desc: "물온도 40℃로 세탁기 약하게 사용", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-blue-900">${getWashBase()}<path d="M 25 88 L 75 88 M 25 96 L 75 96" stroke="currentColor" stroke-width="4" stroke-linecap="round"/><text x="50" y="65" font-size="22" font-weight="900" text-anchor="middle" fill="currentColor">40</text></svg>` },
+            { id: "w3", desc: "물온도 30℃로 중성세제 사용하여 손세탁", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-blue-900">${getWashBase()}<text x="50" y="55" font-size="14" font-weight="900" text-anchor="middle" fill="currentColor">손세탁</text><text x="50" y="73" font-size="14" font-weight="900" text-anchor="middle" fill="currentColor">30</text></svg>` },
+            { id: "w4", desc: "물세탁 불가", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-blue-900">${getWashBase()}${getRedCross()}</svg>` },
+            { id: "w5", desc: "중성세제 사용하여 세탁", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-blue-900">${getWashBase()}<text x="50" y="65" font-size="20" font-weight="900" text-anchor="middle" fill="currentColor">중성</text></svg>` }
+        ]
+    },
+    {
+        title: "Stage 3: 건조 방법",
+        items: [
+            { id: "d1", desc: "그늘에 뉘어서 건조", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-emerald-800">${getDrySquare()}<path d="M 20 40 L 40 20 M 20 60 L 60 20" stroke="currentColor" stroke-width="4"/><path d="M 30 50 L 70 50" stroke="currentColor" stroke-width="5" stroke-linecap="round"/></svg>` },
+            { id: "d2", desc: "옷걸이에 걸어서 그늘에 건조", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-emerald-800">${getDrySquare()}<path d="M 20 40 L 40 20 M 20 60 L 60 20" stroke="currentColor" stroke-width="4"/><path d="M 30 20 C 30 40 70 40 70 20" fill="none" stroke="currentColor" stroke-width="5"/></svg>` },
+            { id: "d3", desc: "기계건조 약하게", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-emerald-800">${getDrySquare()}<circle cx="50" cy="50" r="18" fill="none" stroke="currentColor" stroke-width="5"/><circle cx="50" cy="50" r="4" fill="currentColor"/></svg>` },
+            { id: "d4", desc: "기계건조 불가", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-emerald-800">${getDrySquare()}<circle cx="50" cy="50" r="18" fill="none" stroke="currentColor" stroke-width="5"/>${getRedCross()}</svg>` },
+            { id: "d5", desc: "약하게 짜기", 
+              svg: `<svg viewBox="0 0 100 100" class="w-full h-full text-emerald-800"><rect x="10" y="30" width="80" height="40" rx="8" fill="none" stroke="currentColor" stroke-width="5"/><text x="50" y="56" font-size="16" font-weight="900" text-anchor="middle" fill="currentColor">약하게 짬</text></svg>` }
+        ]
+    }
+];
+
+let currentStage = 0;
+let score = 0;
+let combo = 0;
+let matchedCount = 0;
+
+function shuffleArray(array) {
+    for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+    }
+    return array;
+}
+
+function updateScore() {
+    document.getElementById('score-display').textContent = score;
+    const comboEl = document.getElementById('combo-display');
+    if (combo >= 2) {
+        comboEl.textContent = `${combo} Combo! (+${combo * 5}점)`;
+        comboEl.style.opacity = '1';
+    } else {
+        comboEl.style.opacity = '0';
+    }
+}
+
+function renderStage(stageIndex) {
+    const stage = gameData[stageIndex];
+    document.getElementById('stage-title').textContent = stage.title;
+    
+    matchedCount = 0;
+    
+    // 기호 컨테이너 렌더링 (섞어서 배치)
+    const dragContainer = document.getElementById('draggable-container');
+    dragContainer.innerHTML = '';
+    let itemsToDrag = shuffleArray([...stage.items]);
+    
+    itemsToDrag.forEach(item => {
+        const el = document.createElement('div');
+        el.className = 'draggable-item w-16 h-16 sm:w-20 sm:h-20 bg-white border-2 border-gray-200 rounded-xl shadow-sm cursor-grab flex items-center justify-center p-2 relative z-10 hover:shadow-md';
+        el.dataset.id = item.id;
+        el.innerHTML = item.svg;
+        
+        // 이벤트 리스너 부착
+        el.addEventListener('pointerdown', onPointerDown);
+        dragContainer.appendChild(el);
+    });
+
+    // 설명(드롭존) 컨테이너 렌더링 (섞어서 배치)
+    const dropContainer = document.getElementById('drop-container');
+    dropContainer.innerHTML = '';
+    let itemsToDrop = shuffleArray([...stage.items]);
+
+    itemsToDrop.forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'flex items-center gap-4 p-3 bg-white border border-gray-100 rounded-2xl shadow-sm';
+        
+        const zone = document.createElement('div');
+        zone.className = 'drop-zone shrink-0 w-16 h-16 sm:w-20 sm:h-20 border-4 border-dashed border-gray-300 rounded-xl flex items-center justify-center bg-gray-50';
+        zone.dataset.targetId = item.id;
+        
+        const desc = document.createElement('p');
+        desc.className = 'flex-1 text-sm sm:text-base font-semibold text-gray-700 leading-snug';
+        desc.textContent = item.desc;
+        
+        li.appendChild(zone);
+        li.appendChild(desc);
+        dropContainer.appendChild(li);
+    });
+}
+
+let activeItem = null;
+let ghostEl = null;
+let startX, startY;
+let initialRect;
+
+function onPointerDown(e) {
+    // 이미 맞춘 아이템 무시
+    if(e.target.closest('.draggable-item').dataset.matched) return;
+    
+    activeItem = e.target.closest('.draggable-item');
+    initialRect = activeItem.getBoundingClientRect();
+    
+    // 화면에 떠다닐 고스트 엘리먼트 생성
+    ghostEl = activeItem.cloneNode(true);
+    ghostEl.style.position = 'fixed';
+    ghostEl.style.left = initialRect.left + 'px';
+    ghostEl.style.top = initialRect.top + 'px';
+    ghostEl.style.width = initialRect.width + 'px';
+    ghostEl.style.height = initialRect.height + 'px';
+    ghostEl.style.opacity = '0.9';
+    ghostEl.style.zIndex = '9999';
+    ghostEl.style.pointerEvents = 'none'; // 아래의 드롭존을 감지하기 위해 통과시킴
+    ghostEl.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.2)';
+    ghostEl.style.transform = 'scale(1.05)';
+    
+    document.body.appendChild(ghostEl);
+    
+    startX = e.clientX;
+    startY = e.clientY;
+    
+    activeItem.style.opacity = '0.2'; // 원본 반투명
+    document.addEventListener('pointermove', onPointerMove, { passive: false });
+    document.addEventListener('pointerup', onPointerUp);
+    
+    // 터치 기기 스크롤 방지
+    e.preventDefault();
+}
+
+function onPointerMove(e) {
+    if (!activeItem || !ghostEl) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    
+    ghostEl.style.left = (initialRect.left + dx) + 'px';
+    ghostEl.style.top = (initialRect.top + dy) + 'px';
+    e.preventDefault();
+}
+
+function onPointerUp(e) {
+    document.removeEventListener('pointermove', onPointerMove);
+    document.removeEventListener('pointerup', onPointerUp);
+    
+    if (!activeItem || !ghostEl) return;
+    
+    // 고스트 중앙 좌표를 기준으로 드롭존 찾기
+    const ghostRect = ghostEl.getBoundingClientRect();
+    const gCenterX = ghostRect.left + ghostRect.width / 2;
+    const gCenterY = ghostRect.top + ghostRect.height / 2;
+    
+    let matchedZone = null;
+    const dropZones = document.querySelectorAll('.drop-zone');
+    
+    dropZones.forEach(zone => {
+        if (zone.children.length > 0) return; // 이미 채워진 존 패스
+        const rect = zone.getBoundingClientRect();
+        // 영역 충돌 검사
+        if (gCenterX > rect.left && gCenterX < rect.right &&
+            gCenterY > rect.top && gCenterY < rect.bottom) {
+            matchedZone = zone;
+        }
+    });
+
+    if (matchedZone) {
+        if (activeItem.dataset.id === matchedZone.dataset.targetId) {
+            // 정답 처리
+            handleCorrectDrop(activeItem, matchedZone);
+            ghostEl.remove();
+        } else {
+            // 오답 처리 및 복귀
+            handleWrongDrop(matchedZone);
+            bounceBack();
+        }
+    } else {
+        // 허공에 드롭 시 복귀
+        bounceBack();
+    }
+}
+
+function bounceBack() {
+    ghostEl.style.transition = 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)';
+    ghostEl.style.left = initialRect.left + 'px';
+    ghostEl.style.top = initialRect.top + 'px';
+    ghostEl.style.transform = 'scale(1)';
+    
+    setTimeout(() => {
+        if(activeItem) activeItem.style.opacity = '1';
+        if(ghostEl) ghostEl.remove();
+        activeItem = null;
+        ghostEl = null;
+    }, 300);
+}
+
+function handleCorrectDrop(item, zone) {
+    playSound('correct');
+    combo++;
+    score += 20 + (combo > 1 ? combo * 5 : 0);
+    updateScore();
+    
+    // UI 업데이트 (존에 넣기)
+    item.dataset.matched = 'true';
+    item.style.opacity = '1';
+    item.style.position = 'static';
+    item.style.cursor = 'default';
+    item.className = 'w-full h-full p-1';
+    
+    zone.appendChild(item);
+    zone.className = 'drop-zone shrink-0 w-16 h-16 sm:w-20 sm:h-20 border-4 border-solid border-green-500 rounded-xl bg-green-50 pop flex items-center justify-center';
+    
+    activeItem = null;
+    ghostEl = null;
+    
+    matchedCount++;
+    if (matchedCount === gameData[currentStage].items.length) {
+        setTimeout(handleStageClear, 500);
+    }
+}
+
+function handleWrongDrop(zone) {
+    playSound('wrong');
+    combo = 0;
+    score = Math.max(0, score - 5);
+    updateScore();
+    
+    // 존 흔들림 애니메이션
+    zone.classList.remove('shake');
+    void zone.offsetWidth; // 트리거 리플로우
+    zone.classList.add('shake');
+}
+
+function handleStageClear() {
+    if (currentStage < gameData.length - 1) {
+        playSound('success');
+        currentStage++;
+        renderStage(currentStage);
+    } else {
+        handleGameSuccess();
+    }
+}
+
+function handleGameSuccess() {
+    playSound('success');
+    shootConfetti();
+    
+    // 최고 점수 로컬스토리지 저장 처리
+    let best = 0;
+    try {
+        const saved = localStorage.getItem('careLabelBestScore');
+        if (saved) best = parseInt(saved, 10);
+        if (score > best) {
+            best = score;
+            localStorage.setItem('careLabelBestScore', best.toString());
+        }
+    } catch(e) {
+        best = score; // 저장 실패 시 현재 점수 표기
+    }
+    
+    document.getElementById('final-score').textContent = score;
+    document.getElementById('best-score').textContent = best;
+    document.getElementById('result-modal').classList.remove('hidden');
+}
+
+function shootConfetti() {
+    const canvas = document.getElementById('confetti-canvas');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    const ctx = canvas.getContext('2d');
+    
+    const particles = [];
+    const colors = ['#fde047', '#3b82f6', '#ef4444', '#10b981', '#a855f7'];
+    
+    for(let i=0; i<150; i++) {
+        particles.push({
+            x: canvas.width / 2,
+            y: canvas.height / 2 + 100,
+            w: Math.random() * 10 + 5,
+            h: Math.random() * 10 + 5,
+            dx: Math.random() * 20 - 10,
+            dy: Math.random() * -15 - 10,
+            rot: Math.random() * 360,
+            rotSpeed: Math.random() * 10 - 5,
+            color: colors[Math.floor(Math.random() * colors.length)]
+        });
+    }
+    
+    function animate() {
+        ctx.clearRect(0,0,canvas.width, canvas.height);
+        let active = false;
+        
+        particles.forEach(p => {
+            if (p.y < canvas.height + 20) active = true;
+            
+            p.dy += 0.3; // 중력
+            p.dx *= 0.99; // 공기 저항
+            p.x += p.dx;
+            p.y += p.dy;
+            p.rot += p.rotSpeed;
+            
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(p.rot * Math.PI / 180);
+            ctx.fillStyle = p.color;
+            ctx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+            ctx.restore();
+        });
+        
+        if (active) requestAnimationFrame(animate);
+        else ctx.clearRect(0,0,canvas.width, canvas.height);
+    }
+    animate();
+}
+
+document.getElementById('btn-start').addEventListener('click', () => {
+    // AudioContext 활성화 (사용자 제스처 필수)
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    
+    document.getElementById('start-modal').classList.add('hidden');
+    currentStage = 0;
+    score = 0;
+    combo = 0;
+    updateScore();
+    renderStage(currentStage);
+});
+
+document.getElementById('btn-restart').addEventListener('click', () => {
+    document.getElementById('result-modal').classList.add('hidden');
+    currentStage = 0;
+    score = 0;
+    combo = 0;
+    updateScore();
+    renderStage(currentStage);
+    
+    const canvas = document.getElementById('confetti-canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+});
+</script>
+</body>
+</html>
